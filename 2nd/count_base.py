@@ -50,7 +50,7 @@ def cos_similarity(x, y, eps=1e-8): # ベクトル入れて帰ってくる，相
     nx = x / np.sqrt(np.sum(x**2) + eps)
     ny = y / np.sqrt(np.sum(y**2) + eps)
 
-    return np.dot(nx, ny)
+    return np.dot(nx, ny) # ベクトル同士なので内積になります
 
 # 並び替えする(ここでいうとqueryに近い順)
 def most_similar(query, word_to_id, id_to_word, word_matrix, top=5):
