@@ -1,7 +1,11 @@
 # RNN基礎学習 
 # 0から始めるdeeplearning 2
 
+import sys
+sys.path.append('..') # これで上のディレクトリをpathに追加
 import numpy as np
+from common import ptb
+from sklearn.utils.extmath import randomized_svd
 
 # コーパス作成（要は辞書）
 # corpus = ['id_1', 'id_2', 'id_1'] のように，テキストのデータ順にidが割り振られらもの！
@@ -121,6 +125,29 @@ def main():
     U, S, V = np.linalg.svd(W) # 特異値分解！！
 
     print(np.round(S, 3))
+
+    # ptbを使用する
+    corpus, word_to_id, id_to_word = ptb.load_data()
+    print('id_to_word[0]:', id_to_word[0])
+
+    # パラメータ
+    window_size = 2 # 共起行列でどこまでみるか
+    word_vec_size = 100 # 特異値どこまでみるか
+
+    vocab_size = len(word_to_id) # 辞書の長さ
+
+    C = creat_co_matrix(corpus, vocab_size, window_size=window_size)
+
+    W = ppmi(C, verbose=True)
+
+    U, S, V = randomized_svd(W, n_components=word_vec_size, n_iter=5, random_state=None)
+    # 近似した単語ベクトル
+    word_vecs = U
+    # 調べたい単語リスト
+    querys = ['you', 'year', 'car']
+
+    for query in querys:
+        most_similar(query, word_to_id, id_to_word, word_vecs, top=5)
 
 
 if __name__ == '__main__':
