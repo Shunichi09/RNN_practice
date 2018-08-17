@@ -186,7 +186,7 @@ def remove_duplicate(params, grads):
 
     while True:
         find_flg = False
-        L = len(params)
+        L = len(params) #
 
         for i in range(0, L - 1):
             for j in range(i + 1, L):
@@ -207,7 +207,7 @@ def remove_duplicate(params, grads):
                 if find_flg: break # popするので，これでよい（各要素の最初の部分だけみることになるけど）
             if find_flg: break
 
-        if not find_flg: break # 共通部分がない
+        if not find_flg: break # 共通部分がない場合
 
     return params, grads
 

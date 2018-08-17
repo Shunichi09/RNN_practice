@@ -87,7 +87,7 @@ def most_similar(query, word_to_id, id_to_word, word_matrix, top=5):
 
 # 相互情報量行列
 def ppmi(C, verbose=False, eps=1e-8): # 共起行列を確率ベースに進化
-    M = np.zeros_like(C, dtype=np.float32) # 空の入れ物を作っておく
+    M = np.zeros_like(C, dtype=float32) # 空の入れ物を作っておく
     N = np.sum(C) # 全部の合計（共起行列で母数かける）
     S = np.sum(C, axis=0) # 各ものが列で足し算される
     total = C.shape[0] * C.shape[1]
