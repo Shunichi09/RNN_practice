@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from functions import softmax, cross_entropy_error
 import time
+import sys
 
 class MatMul:
     def __init__(self, W):
@@ -85,9 +86,12 @@ class SimpleCBOW():
         '''
         順伝播
         '''
-        # 隠れ層の出力
-        h0 = self.in_layer0.forward(contexts[:, 0])
-        h1 = self.in_layer1.forward(contexts[:, 1])
+        # 隠れ層の出力(ここで入力を2つに分けている！！)，バッチで入ってきても6 * 2 * 7　なので
+        h0 = self.in_layer0.forward(contexts[:, 0]) # 1列目（前）
+        h1 = self.in_layer1.forward(contexts[:, 1]) # 2列目（後ろ）
+        # print(contexts)
+        # print(contexts[:, 0])
+        # sys.exit()
         # 2つの成分を足して2で割る，他にもやり方はある
         h = (h0 + h1) * 0.5
         # 出力のみ
@@ -134,8 +138,10 @@ class Trainer:
             idx = np.random.permutation(np.arange(data_size))
             x = x[idx]
             t = t[idx]
+            # 単純に混ぜただけ
 
             for iters in range(max_iters):
+                # 順番に取り出していく
                 batch_x = x[iters*batch_size:(iters+1)*batch_size]
                 batch_t = t[iters*batch_size:(iters+1)*batch_size]
 

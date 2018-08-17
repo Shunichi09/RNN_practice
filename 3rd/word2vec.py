@@ -105,6 +105,10 @@ def main():
     trainer.fit(contexts, target, max_epoch, batch_size)
     trainer.plot()
 
+    # 単語の分散を見てみる
+    word_vecs = model.words_vecs
+
+
 if __name__ == '__main__':
     main()
 
