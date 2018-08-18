@@ -41,13 +41,13 @@ class SigmoidWithLoss:
         self.t = t
         self.y = 1 / (1 + np.exp(-x))
 
-        print('shape = {0}'.format(self.y.shape))
-        print('np.c_[1 - self.y, self.y] = {0}'.format(np.c_[1 - self.y, self.y]))
+        # print('shape = {0}'.format(self.y.shape))
+        # print('np.c_[1 - self.y, self.y] = {0}'.format(np.c_[1 - self.y, self.y]))
 
-        self.loss = cross_entropy_error(np.c_[1 - self.y, self.y], self.t) 
+        self.loss = cross_entropy_error(np.c_[1 - self.y, self.y], self.t) # しつこいけどyはバッチ数×1で出てくる
         # np._cの意味は，2次元以上の配列で、最も最低の次元(axisの番号が一番大きい)の方向で配列を結合する
-        # ただ，特殊で，1次元の時は列に結合される
-        # おそらくこの場合はTが，バッチサイズのみになっているので，それに合わせているんだと思う，つまりは列結合
+        # ただ，今回は特殊で，1次元の時は列に結合される！
+        # おそらくこの場合はTが，バッチサイズのみになっているので，それに合わせているんだと思う，つまりはaxis=1の列結合
 
         return self.loss
 
@@ -76,9 +76,9 @@ class Embedding:
 
     def backward(self, dout):
         dw, = self.grads # 取り出し
-        dw[...] = 0 # そのまま値をリセット
+        dw[...] = 0.0 # そのまま値をリセット
 
-        print('embeding shape = {0}'.format(dw))
+        # print('dw = {0}'.format(dw)) 0になります
 
         for i, word_id in enumerate(self.idx): # idを取り出す
             dw[word_id] += dout[i] 
@@ -100,7 +100,7 @@ class EmbeddingDot:
         self.cache = None # forward計算結果を保存
 
     def forward(self, h, idx):
-        target_W = self.embed.forward(idx) # 取り出した重み
+        target_W = self.embed.forward(idx) # 取り出した重み（batch分）
         out = np.sum(target_W * h, axis=1)# バッチ対応です（axis = 1）で各バッチに対応する内積が出ます
 
         self.cache = (h, target_W) # どれを取り出すのか保存しておく, tupleなのは変更されないように？
@@ -113,9 +113,9 @@ class EmbeddingDot:
         
         dtarget_W = dout * h # 内積の逆伝播は内積です
 
-        print('h = {0}'.format(h))
-        print('dout = {0}'.format(dout))
-        print('dtarget_W = {0}'.format(dtarget_W))
+        # print('h = {0}'.format(h.shape))
+        # print('dout = {0}'.format(dout.shape)) # 100×1
+        # print('dtarget_W = {0}'.format(dtarget_W.shape)) # 重みは100×100，バッチ数が100なので！取り出してるからbatch分だけ
 
         self.embed.backward(dtarget_W) # ある特定の場所だけの更新がかかる用の行列ができたので，それをembeddingに渡せばいい
 

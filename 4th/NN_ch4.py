@@ -45,6 +45,8 @@ class CBOW:
         h *= 1 / len(self.in_layers) # 前回で0.5かけたのと同じで，各レイヤーからの出力を等倍で考慮，hiddensizeで来る
         loss = self.ns_loss.forward(h, target) # targetはようは答えです
 
+        return loss
+
     def backward(self, dout=1): # 同様にスタートは1
         dout = self.ns_loss.backward(dout)
         dout *= 1 / len(self.in_layers) # この作業も同じ（逆伝播させているので，かけた分かけます（掛け算のノードと同じ））
@@ -66,7 +68,7 @@ class Trainer:
         self.eval_interval = None
         self.current_epoch = 0
 
-    def fit(self, x, t, max_epoch, batch_size, max_grad=None, eval_interval=20): # デフォルト設定いるのか疑問消した
+    def fit(self, x, t, max_epoch, batch_size, max_grad=None, eval_interval=20): # デフォルト設定いるのか疑問,消した
         data_size = len(x) # 行×列の行がでるイメージ
         max_iters = data_size // batch_size # 切り捨て除算らしい
         self.eval_interval = eval_interval
@@ -89,6 +91,7 @@ class Trainer:
 
                 # 勾配を求め、パラメータを更新
                 loss = model.forward(batch_x, batch_t)
+                # print(loss)
                 model.backward()
                 params, grads = remove_duplicate(model.params, model.grads)  # 共有された重みを1つに集約，下参照
                 if max_grad is not None:# RNNで使用

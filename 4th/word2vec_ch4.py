@@ -5,7 +5,9 @@
 import sys
 sys.path.append('..') # これで上のディレクトリをpathに追加
 import numpy as np
-import NN_ch4
+from NN_ch4 import CBOW, Adam, Trainer
+from common import ptb # dataset読み込む用
+import pandas as pd
 
 # 下準備に使うものたち
 
@@ -50,54 +52,26 @@ def create_contexts_target(corpus, window_size=1):
     
     return np.array(contexts), np.array(target)
 
-def convert_one_hot(corpus, vocab_size): # 個人的にはcorpusという表現はいまいちかと，単純にtargetとcontexts
-    '''one-hot表現への変換
-    :param corpus: 単語IDのリスト（1次元もしくは2次元のNumPy配列）
-    :param vocab_size: 語彙数
-    :return: one-hot表現（2次元もしくは3次元のNumPy配列）
-    '''
-    N = corpus.shape[0]
-
-    if corpus.ndim == 1: # 次元が1の場合，たぶんこれはtarget用
-        one_hot = np.zeros((N, vocab_size), dtype=np.int32) # zerosで初期化
-        for idx, word_id in enumerate(corpus):
-            one_hot[idx, word_id] = 1 # 必要なところだけ1にする
-
-    elif corpus.ndim == 2:# 次元が2の場合，たぶんこれはcontexts用
-        C = corpus.shape[1]
-        one_hot = np.zeros((N, C, vocab_size), dtype=np.int32)
-        for idx_0, word_ids in enumerate(corpus):# zerosで初期化
-            for idx_1, word_id in enumerate(word_ids):# 必要なところだけ1にする
-                one_hot[idx_0, idx_1, word_id] = 1
-
-    return one_hot
-
-## ここからNNのクラス（同フォルダの別pyに記載）
-
-from NN_ch3 import SimpleCBOW, Adam, Trainer
 
 def main():
     # 準備
     # これは全部そのままの意味
-    window_size = 1 # どれくらいの長さ見るか
-    hidden_size = 5 # 隠れ層の数
-    batch_size = 3 # バッチサイズ
-    max_epoch = 1000
+    window_size = 5 # どれくらいの長さ見るか
+    hidden_size = 10 # 隠れ層の数(hの列数)
+    batch_size = 10 # バッチサイズ
+    max_epoch = 1
     
-    # テキストデータ
-    text = 'You say goodbye and I say hello'
     # コーパスと辞書作成
-    corpus, word_to_id, id_to_word = preprocess(text)
+    corpus, word_to_id, id_to_word = ptb.load_data('train')
     # GROWに使うデータセット作成
-    contexts, target = create_contexts_target(corpus, window_size=1)
+    contexts, target = create_contexts_target(corpus, window_size=5)
     # 語彙数
     vocab_size = len(word_to_id)
 
-    target = convert_one_hot(target, vocab_size)
-    contexts = convert_one_hot(contexts, vocab_size)
+    print('vocab_size is {0}'.format(vocab_size))
     
     # 使うモデル
-    model = SimpleCBOW(vocab_size, hidden_size) # 入力と出力が同じなので（大きさは語彙数になる）
+    model = CBOW(vocab_size, hidden_size, window_size, corpus) # 入力と出力が同じなので（大きさは語彙数になる）
     optimizer = Adam()
     trainer = Trainer(model, optimizer)
 
@@ -106,8 +80,24 @@ def main():
     trainer.plot()
 
     # 単語の分散を見てみる
-    word_vecs = model.words_vecs
+    word_vecs = model.word_vecs
 
+    # wordvec用
+    word_vecs_pandas = pd.DataFrame(word_vecs)
+
+    # word_to_id 用
+    word_to_id_pandas = pd.DataFrame(word_to_id.items())
+    word_to_id_pandas = word_to_id_pandas.rename(columns=['word', 'id'])
+
+    # id_to_word　用
+    id_to_word_pandas = pd.DataFrame(id_to_word.items())
+    id_to_word_pandas = id_to_word_pandas.rename(columns=['id', 'word'])
+
+
+    name_list = ('word_vecs', 'word_to_id', 'id_to_word')
+
+    for i, item in enumerate(word_vecs_pandas, word_to_id_pandas, id_to_word_pandas):
+        item.to_csv(name_list[i] +'_data.csv')
 
 if __name__ == '__main__':
     main()
