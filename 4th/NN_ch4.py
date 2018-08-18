@@ -1,117 +1,59 @@
-# Chap3で使うNN関連のプログラム
+# Chap3で使うNN関連のプログラム(ネットワーク)
 import numpy as np
 import matplotlib.pyplot as plt
-from functions_ch3 import softmax, cross_entropy_error
+from functions_ch4 import UnigramSampler, cross_entropy_error
+from layers_ch4 import NegativeSamplingLoss, Embedding
 import time
 import sys
 
-class MatMul:
-    def __init__(self, W):
-        self.params = [W] # わざわざこうしてるのは，layersで処理するときに配列同士の足し算がうまくいかないから（layer毎の分離が出来なくなる）
-        self.grads = [np.zeros_like(W)] # こちも同じ理由　レイヤー毎に分離したいので
-        self.x = None
 
-    def forward(self, x):
-        # 順伝播
-        W, = self.params # こうやると中身取り出せます
-        out = np.dot(x, W)
-        self.x = x
-        return out
-
-    def backward(self, dout):
-        # 逆伝播
-        W, = self.params
-        dx = np.dot(dout, W.T)
-        dW = np.dot(self.x.T, dout)
-        self.grads[0][...] = dW # deepコピーと同じ（アドレス固定する）pythonは値に割り振るのでそれを避ける
-        return dx
-
-class SoftmaxWithLoss:
-    def __init__(self):
-        self.params, self.grads = [], []
-        self.y = None  # softmaxの出力
-        self.t = None  # 教師ラベル
-
-    def forward(self, x, t):
-        self.t = t
-        self.y = softmax(x) # softmaxとかは簡単なので別のファイルで（functions.py）
-
-        # 教師ラベルがone-hotベクトルの場合、正解のインデックスに変換
-        if self.t.size == self.y.size:
-            self.t = self.t.argmax(axis=1)
-
-        loss = cross_entropy_error(self.y, self.t) # （functions.py）
-        return loss
-
-    def backward(self, dout=1):
-        batch_size = self.t.shape[0]
-
-        dx = self.y.copy()
-        dx[np.arange(batch_size), self.t] -= 1 # y(1-y)の式を再現
-        dx *= dout
-        dx = dx / batch_size # これはbatchsizeで伝播させないと，最終的にいろいろ足し算されてしまうのでそれを防いでいるイメージです（バッチの分が入ってしまう）
-
-        return dx
-
-class SimpleCBOW():
+class CBOW:
     '''
-    シンプルなCBOWのクラス作成
-    関数としてmatmulを使うことにする
+    ネットワークの作成
     '''
-    def __init__(self, vocab_size, hidden_size): # ここでの注意点は隠れ層は入力層より小さくしないとだめ
+    def __init__(self, vocab_size, hidden_size, window_size, corpus):
         V, H = vocab_size, hidden_size
 
         # 重みの初期化
-        # 後々単語の分散表現として使う
-        W_in = 0.01 * np.random.randn(V, H).astype('f')
-        W_out = 0.01 * np.random.randn(H, V).astype('f') # 今回は出力はone-hotで出てくるから入力と出力は同じ数！
+        W_in = 0.01 * np.random.randn(V, H).astype('f') # 正規分布
+        W_out = 0.01 * np.random.randn(V, H).astype('f')
 
-        # レイヤー作成
-        self.in_layer0 = MatMul(W_in) # contextsは2つしかないので，入力の重みは2つ準備
-        self.in_layer1 = MatMul(W_in)
-        self.out_layer = MatMul(W_out)
-        self.loss_layer = SoftmaxWithLoss()
+        # レイヤ作成
+        self.in_layers = []
+        for i in range(2 * window_size): # コンテキストの数に応じて（windowsizeが1なら両サイドあることになるので2倍）
+            layer = Embedding(W_in) # 同じ重みを参照する
+            self.in_layers.append(layer)
 
-        # リストにまとめます
-        layers = [self.in_layer0, self.in_layer1, self.out_layer]
+        self.ns_loss = NegativeSamplingLoss(W_out, corpus, power=0.75, sample_size=5)
+
+        layers = self.in_layers + [self.ns_loss] # これで要素が足し算される
+        
+        # 各レイヤーの重みをまとめておく
         self.params, self.grads = [], []
-        for layer in layers: # さっきの謎に[]でくくってるのはここでその意味を発揮　確か0から作るDL1だとここdictにしてた
-            self.params += layer.params # 各レイヤーのものが[[w], [w], ]みたいに収納される！分かりやすい
+        for layer in layers:
+            self.params += layer.params
             self.grads += layer.grads
 
-        # 分散表現に使うもの
-        self.words_vecs = W_in
+        # 取り出すとき用
+        self.word_vecs = W_in
 
-    def forward(self, contexts, target):
-        '''
-        順伝播
-        '''
-        # 隠れ層の出力(ここで入力を2つに分けている！！)，バッチで入ってきても6 * 2 * 7　なので
-        h0 = self.in_layer0.forward(contexts[:, 0]) # 1列目（前）
-        h1 = self.in_layer1.forward(contexts[:, 1]) # 2列目（後ろ）
-        # print(contexts)
-        # print(contexts[:, 0])
-        # sys.exit()
-        # 2つの成分を足して2で割る，他にもやり方はある
-        h = (h0 + h1) * 0.5
-        # 出力のみ
-        score = self.out_layer.forward(h)
-        # lossも計算
-        loss = self.loss_layer.forward(score, target)
+    def forward(self, contexts, target): # 前章まではここはone-hotだったが，その計算を工夫してなくしたのでone-hotにする必要はない
+        h = 0
+        for i, layer in enumerate(self.in_layers): 
+            h += layer.forward(contexts[:,i]) # 何列目を取り出すか（しつこいですが行数がバッチ）
+        
+        h *= 1 / len(self.in_layers) # 前回で0.5かけたのと同じで，各レイヤーからの出力を等倍で考慮，hiddensizeで来る
+        loss = self.ns_loss.forward(h, target) # targetはようは答えです
 
-        return loss
-
-    def backward(self, dout=1): # 逆伝播は1からスタート　というかなんならいらない笑
-        '''
-        逆伝播
-        '''
-        ds = self.loss_layer.backward(dout)
-        da = self.out_layer.backward(ds)
-        da *= 0.5
-        self.in_layer1.backward(da)
-        self.in_layer0.backward(da)
+    def backward(self, dout=1): # 同様にスタートは1
+        dout = self.ns_loss.backward(dout)
+        dout *= 1 / len(self.in_layers) # この作業も同じ（逆伝播させているので，かけた分かけます（掛け算のノードと同じ））
+        
+        for layer in self.in_layers: # 後は順番に呼び出すだけ
+            layer.backward(dout)
 
         return None
+
 
 class Trainer:
     '''

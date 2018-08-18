@@ -5,7 +5,7 @@
 import sys
 sys.path.append('..') # これで上のディレクトリをpathに追加
 import numpy as np
-import NN_ch3
+import NN_ch4
 
 # 下準備に使うものたち
 
@@ -37,7 +37,7 @@ def create_contexts_target(corpus, window_size=1):
     '''
     # CROWモデルに使用するためにコーパスから入力とターゲットを作る
     '''
-    target = corpus[window_size:-window_size] # widnowsize分だけ両側は排除しておく（2つを入力にいれることができなくなるため）
+    target = corpus[window_size:-window_size] # widnowsize分だけ両側は排除しておく（前後2つを入力にいれることができなくなるため）
     contexts = [] # 作成するcontextの組み合わせ
 
     for idx in range(window_size, len(corpus)-window_size): # index
