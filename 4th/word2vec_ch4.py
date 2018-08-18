@@ -58,13 +58,14 @@ def main():
     # これは全部そのままの意味
     window_size = 5 # どれくらいの長さ見るか
     hidden_size = 10 # 隠れ層の数(hの列数)
-    batch_size = 10 # バッチサイズ
-    max_epoch = 1
+    batch_size = 100 # バッチサイズ
+    max_epoch = 10
     
     # コーパスと辞書作成
     corpus, word_to_id, id_to_word = ptb.load_data('train')
+
     # GROWに使うデータセット作成
-    contexts, target = create_contexts_target(corpus, window_size=5)
+    contexts, target = create_contexts_target(corpus, window_size=1) # 5
     # 語彙数
     vocab_size = len(word_to_id)
 
@@ -86,13 +87,10 @@ def main():
     word_vecs_pandas = pd.DataFrame(word_vecs)
 
     # word_to_id 用
-    word_to_id_pandas = pd.DataFrame(word_to_id.items())
-    word_to_id_pandas = word_to_id_pandas.rename(columns=['word', 'id'])
+    word_to_id_pandas = pd.io.json.json_normalize(word_to_id)
 
     # id_to_word　用
-    id_to_word_pandas = pd.DataFrame(id_to_word.items())
-    id_to_word_pandas = id_to_word_pandas.rename(columns=['id', 'word'])
-
+    id_to_word_pandas = pd.io.json.json_normalize(id_to_word)
 
     name_list = ('word_vecs', 'word_to_id', 'id_to_word')
 
