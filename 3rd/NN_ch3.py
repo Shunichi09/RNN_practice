@@ -47,7 +47,7 @@ class SoftmaxWithLoss:
         batch_size = self.t.shape[0]
 
         dx = self.y.copy()
-        dx[np.arange(batch_size), self.t] -= 1 # y(1-y)の式を再現
+        dx[np.arange(batch_size), self.t] -= 1 # y-tの式を再現
         dx *= dout
         dx = dx / batch_size # これはbatchsizeで伝播させないと，最終的にいろいろ足し算されてしまうのでそれを防いでいるイメージです（バッチの分が入ってしまう）
 
