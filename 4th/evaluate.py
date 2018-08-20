@@ -47,35 +47,29 @@ def load_file():
     id_to_word = pd.read_csv('id_to_word_data.csv', header=None, engine='python')
     id_to_word = id_to_word.values
 
-    print(word_to_id)
+    # 列削除(最初の行が読み込まれてしまうので)
+    word_vecs = np.delete(word_vecs, 0, 1)
+    word_to_id = np.delete(word_to_id, 0, 1)
+    id_to_word = np.delete(id_to_word, 0, 1)
 
+    # 辞書作成
+    word_to_id = dict(zip(word_to_id[0, :], list(map(int, word_to_id[1, :]))))
+    id_to_word = dict(zip(list(map(int, id_to_word[0, :])), id_to_word[1, :]))
+
+    
+    # print(word_to_id)
+    # print(id_to_word)
+    # print(word_vecs)
 
     return word_vecs, word_to_id, id_to_word
 
 def main():
     word_vecs, word_to_id, id_to_word = load_file()
 
-    querys = ['you', 'year']
+    querys = ['you', 'year', 'toyota']
 
     for query in querys:
-        most_similar(query, word_to_id, id_to_word, word_vecs, top=5)
+        most_similar(query, word_to_id, id_to_word, word_vecs, top=10)
 
 if __name__ == '__main__':
     main()
-
-
-'''
-import numpy as np
-a,b,c = np.arange(10), np.arange(10)*2, np.arange(10)*3
-
-#-> a: [0 1 2 3 4 5 6 7 8 9]
-#-> b: [ 0  2  4  6  8 10 12 14 16 18]
-#-> c: [ 0  3  6  9 12 15 18 21 24 27]
-
-_bc = zip(b,c)
-
-result = dict(zip(a,_bc))
-#-> {0: (0, 0), 1: (2, 3), 2: (4, 6), 3: (6, 9), 4: (8, 12), 5: (10, 15), 6: (12, 18), 7: (14, 21), 8: (16, 24), 9: (18, 27)}
-
-# result = dict(zip(a,zip(b,c)))でもイイ。
-'''
