@@ -54,6 +54,10 @@ def main():
                     batch_x[i, t] = xs[(offset + time_idx) % data_size] # 
                     batch_t[i, t] = ts[(offset + time_idx) % data_size] # 今回はbatchを作ってもバッチ×時間×1かも
                 time_idx += 1
+                
+            print(time_idx)
+            if time_idx > 200:
+                sys.exit()
 
             # print('batch_t.shape =  {0}'.format(batch_t.shape))
             # print('batch_x.shape =  {0}'.format(batch_x.shape))

@@ -1,9 +1,9 @@
-# Chap3で使うNN関連のプログラム(layers)
+# layers
 import numpy as np
 import matplotlib.pyplot as plt
-from functions_ch5 import UnigramSampler, cross_entropy_error, softmax
 import time
 import sys
+import copy
 
 class RNN():
     '''
@@ -17,6 +17,7 @@ class RNN():
     def forward(self, x, h_prev): # h_prevは1つ前の状態
         Wx, Wh, b = self.params # 取り出す
         t = np.dot(h_prev, Wh) + np.dot(x, Wx) + b
+
         h_next = np.tanh(t) # tanh関数
 
         self.cache = (x, h_prev, h_next) # 値を保存しておく
@@ -42,7 +43,7 @@ class RNN():
 
 class TimeRNN:
     '''
-    上のやつ全部まとめたやつTime分
+    上のやつ全部まとめたやつBPTTさせる分
     '''
     def __init__(self, Wx, Wh, b, stateful=False):
         self.params = [Wx, Wh, b] # くくっているのは同じ理由 hWh + xWx + b = h
@@ -61,9 +62,6 @@ class TimeRNN:
     def forward(self, xs):
         Wx, Wh, b = self.params # パラメータの初期化
         N, T, D = xs.shape # xsの形, Dは入力ベクトルの大きさ，このレイヤーはまとめてデータをもらうので！
-
-        # print(N, T, D)
-        # sys.exit()
 
         D, H = Wx.shape 
 
@@ -107,90 +105,6 @@ class TimeRNN:
 
         return dxs # 後ろに逆伝播させる用(N, T, D)になっている
 
-class MatMul:
-    def __init__(self, W):
-        self.params = [W] # わざわざこうしてるのは，layersで処理するときに配列同士の足し算がうまくいかないから（layer毎の分離が出来なくなる）
-        self.grads = [np.zeros_like(W)] # こちも同じ理由　レイヤー毎に分離したいので
-        self.x = None
-
-    def forward(self, x):
-        # 順伝播
-        W, = self.params # こうやると中身取り出せます
-        out = np.dot(x, W)
-        self.x = x
-        return out
-
-    def backward(self, dout):
-        # 逆伝播
-        W, = self.params
-        dx = np.dot(dout, W.T)
-        dW = np.dot(self.x.T, dout)
-        self.grads[0][...] = dW # deepコピーと同じ（アドレス固定する）pythonは値に割り振るのでそれを避ける
-        return dx
-
-class Embedding:
-    '''
-    入力層のMatmulの代替え
-    '''
-    def __init__(self, W):
-        self.params = [W] # このくくる理由は前述したとおり
-        self.grads = [np.zeros_like(W)]
-        self.idx = None
-
-    def forward(self, idx):
-        W, = self.params
-        self.idx = idx # どれを取り出すのか保存しておく
-        out = W[idx] # 取り出しただけ
-        return out
-
-    def backward(self, dout):
-        dw, = self.grads # 取り出し
-        dw[...] = 0.0 # そのまま値をリセット
-
-        # print('dw = {0}'.format(dw)) 0になります
-
-        for i, word_id in enumerate(self.idx): # idを取り出す
-            dw[word_id] += dout[i] # 取り出したところのを書き換える
-
-        # 加算なのはrepeatノードとして考えてもそうですが，Matmulの一部の動作を取り出しているので，足し算しないと話がおかしくなります
-        # matmulを実際に同じ要素を含む形で書いてみると加算理由がわかるかと思います
-        # ちなみにこれNoneなのはこれ以上逆伝播する必要がないからです
-        return None
-
-    
-class TimeEmbedding:
-    def __init__(self, W):
-        self.params = [W]
-        self.grads = [np.zeros_like(W)]
-        self.layers = None
-        self.W = W
-
-    def forward(self, xs):
-        N, T = xs.shape # ここまでは2次元，バッチ×時間
-        V, D = self.W.shape # Vは語彙数，これは単語分散行列です
-
-        out = np.empty((N, T, D), dtype='f')
-        self.layers = []
-
-        for t in range(T):
-            layer = Embedding(self.W) # 同じ重みを共有
-            out[:, t, :] = layer.forward(xs[:, t]) # 重み取り出すだけ，形としては列（時間軸がそろっているイメージ），列にそろえて入っていく，これだと左は2次元行列を指しているのでこのままいける
-            self.layers.append(layer)
-
-        return out # ここで三次元になる
-
-    def backward(self, dout):
-        N, T, D = dout.shape
-
-        grad = 0
-        for t in range(T):
-            layer = self.layers[t]
-            layer.backward(dout[:, t, :])
-            grad += layer.grads[0] # layerは重み共有なので足し算
-
-        self.grads[0][...] = grad
-        return None
-
 class TimeAffine:
     '''
     AffineがT個分ある（行列演算レベルでくっつけてある）
@@ -227,70 +141,46 @@ class TimeAffine:
 
         return dx
 
-
-class TimeSoftmaxWithLoss:
+class TimeIdentifyWithLoss:
+    '''
+    時系列データをまとめて受け付ける損失関数
+    '''
     def __init__(self):
         self.params, self.grads = [], []
         self.cache = None
-        self.ignore_label = -1
+        self.counter = 0
 
     def forward(self, xs, ts):
-        N, T, V = xs.shape
-
-        if ts.ndim == 3:  # 教師ラベルがone-hotベクトルの場合
-            ts = ts.argmax(axis=2) # 何番目がもっとも大きいか（[]）の一番小さいところの行でみている
-
-        # これなにやってんだろ
-        mask = (ts != self.ignore_label) # -1なら排除してるんだけど，-1のときがあるっぽいな
+        N, T, D = xs.shape # ここでDは1
 
         # バッチ分と時系列分をまとめる（reshape）
-        xs = xs.reshape(N * T, V)
-        ts = ts.reshape(N * T) # indexです，列数
-        mask = mask.reshape(N * T)
+        xs = xs.reshape(N * T, D) # ここは同じになるはず
+        ts = ts.reshape(N * T, D) #
 
-        ys = softmax(xs)
-        ls = np.log(ys[np.arange(N * T), ts]) # 正解のindexだけ取り出している
-        ls *= mask  # ignore_labelに該当するデータは損失を0にする
-        loss = -1 * np.sum(ls)
-        loss /= mask.sum() # mask部分だけ考える
+        ys = copy.deepcopy(xs) # 恒等関数
+        
+        loss = 0.5 * np.sum((ys - ts)**2)
+        loss /= N * T # 1データ分での誤差
 
-        print('mask = {0}'.format(mask.sum()))
+        # print('Y = {0}, T = {1}'.format(np.round(ys, 3), np.round(ts, 3)))
+        # print('N * T = {0}'.format(N*T))
+        # print('loss = {0}'.format(loss))
+        # if self.counter % 1 == 0:
+            # plt.plot(range(len(ys.flatten())) , ys.flatten())
+            # plt.plot(range(len(ys.flatten())) , ts.flatten())
+            # plt.show()
+        # a = input()
 
-        self.cache = (ts, ys, mask, (N, T, V))
+        self.cache = (ts, ys, (N, T, D))
+        self.counter += 1
         return loss
 
     def backward(self, dout=1):
-        ts, ys, mask, (N, T, V) = self.cache
+        ts, ys, (N, T, D) = self.cache
 
-        dx = ys # 出力をこっちにいれとく
-        dx[np.arange(N * T), ts] -= 1 # one-hotの場合は，正解のところいがいtは0，しつこいけど行がバッチ！！！！
-        dx *= dout
-        dx /= mask.sum()
-        dx *= mask[:, np.newaxis]  # ignore_labelに該当するデータは勾配を0にする
+        dx = ys - ts # 出力をこっちにいれとく
+        dx /= N * T
 
-        dx = dx.reshape((N, T, V))
+        dx = dx.reshape((N, T, D))
 
         return dx
-
-
-'''
-In [3]: x
-Out[3]:
-array([[ 0,  1,  2,  3,  4],
-       [ 5,  6,  7,  8,  9],
-       [10, 11, 12, 13, 14]])
-
-In [4]: x[np.newaxis, :, :] # １つ次元を追加してスライシング。
-Out[4]:
-array([[[ 0,  1,  2,  3,  4],
-        [ 5,  6,  7,  8,  9],
-        [10, 11, 12, 13, 14]]])
-
-In [5]: x[:, np.newaxis, :] # axis=1のところに入れることも可能。  
-Out[5]:
-array([[[ 0,  1,  2,  3,  4]],
-
-       [[ 5,  6,  7,  8,  9]],
-
-       [[10, 11, 12, 13, 14]]])
-'''
