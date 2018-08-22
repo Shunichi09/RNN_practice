@@ -113,7 +113,7 @@ def main():
     y = [data_dic['ave_temp']]
     x_label_name = 'date'
     y_label_name = 'temp'
-    y_names = ['ave_temp']
+    y_names = ['y']
     ploter = Formal_mul_ploter(x, y, x_label_name, y_label_name, y_names)
     ploter.mul_plot()
 
@@ -124,7 +124,7 @@ def main():
     output_size = 1 # 出力の次元
     time_size = 25 # Truncated BPTTの展開する時間サイズ，RNNのステップ数 # 20
     lr = 0.01 # 学習率 0.01
-    max_epoch = 7000 # 最大epoch
+    max_epoch = 10000 # 最大epoch
 
     # dataset作成
     x_train, t_train, x_test, t_test = data_editer.make_data_set(time_size)
