@@ -1,111 +1,139 @@
 # Chap3で使うNN関連のプログラム(layers)
 import numpy as np
 import matplotlib.pyplot as plt
-from functions_ch5 import UnigramSampler, cross_entropy_error, softmax
+from functions_ch6 import UnigramSampler, cross_entropy_error, softmax, sigmoid
 import time
 import sys
 
-class RNN():
-    '''
-    RNNの1ステップの処理を行うレイヤーの実装
-    '''
+class LSTM:
     def __init__(self, Wx, Wh, b):
-        self.params = [Wx, Wh, b] # くくっているのは同じ理由
+        '''
+        Wx: 入力`x`用の重みパラーメタ（4つ分の重みをまとめる）
+        Wh: 隠れ状態`h`用の重みパラメータ（4つ分の重みをまとめる）
+        b: バイアス（4つ分のバイアスをまとめる）
+        '''
+        self.params = [Wx, Wh, b]
         self.grads = [np.zeros_like(Wx), np.zeros_like(Wh), np.zeros_like(b)]
         self.cache = None
 
-    def forward(self, x, h_prev): # h_prevは1つ前の状態
-        Wx, Wh, b = self.params # 取り出す
-        t = np.dot(h_prev, Wh) + np.dot(x, Wx) + b
-        h_next = np.tanh(t) # tanh関数
+    def forward(self, x, h_prev, c_prev):
+        Wx, Wh, b = self.params # パラメータ抽出
+        N, H = h_prev.shape # 隠れ状態のサイズ
 
-        self.cache = (x, h_prev, h_next) # 値を保存しておく
-        
-        return h_next
-    
-    def backward(self, dh_next): # 隠れ層の逆伝播の値が引数
+        A = np.dot(x, Wx) + np.dot(h_prev, Wh) + b # 内部状態を算出
+
+        f = A[:, :H] # それぞれを挿入する，3列目
+        g = A[:, H:2*H] # 2列目
+        i = A[:, 2*H:3*H] # 3列目
+        o = A[:, 3*H:] # 4列目
+
+        f = sigmoid(f) # forget gate
+        g = np.tanh(g) # memorizeする情報
+        i = sigmoid(i) # input gate
+        o = sigmoid(o) # output gate
+
+        c_next = f * c_prev + g * i # 出力を計算
+        h_next = o * np.tanh(c_next) # 次の状態を保持
+
+        self.cache = (x, h_prev, c_prev, i, f, g, o, c_next)
+        return h_next, c_next
+
+    def backward(self, dh_next, dc_next):
         Wx, Wh, b = self.params
-        x, h_prev, h_next = self.cache
+        x, h_prev, c_prev, i, f, g, o, c_next = self.cache # パラメータ取り出し
 
-        dt = dh_next * (1 - h_next ** 2) # tanhの逆伝播（各要素に対してかかる）
-        db = np.sum(dt, axis=0) # いつものMatmulと同じ
-        dWh = np.dot(h_prev.T, dt) # いつものMatmulと同じ
-        dh_prev = np.dot(dt, Wh.T) # 上の式みて考えれば分かる
-        dWx = np.dot(x.T, dt)
-        dx = np.dot(dt, Wx.T)
+        tanh_c_next = np.tanh(c_next) # p246の右端のところ，tanhが必要，掛け算
 
-        self.grads[0][...] = dWx # 値をコピー
+        ds = dc_next + (dh_next * o) * (1 - tanh_c_next ** 2) # 右端のところがちょっと難しいけど，追っていけばできる
+
+        dc_prev = ds * f # 掛け算ノードの逆伝播
+
+        di = ds * g # 同じ
+        df = ds * c_prev #  追っていけばできる
+        do = dh_next * tanh_c_next # p246の右端のところ，tanhが必要，掛け算
+        dg = ds * i # 掛け算のところ
+
+        di *= i * (1 - i)
+        df *= f * (1 - f)
+        do *= o * (1 - o) 
+        dg *= (1 - g ** 2) # 自分のところに戻るようの逆伝播
+
+        dA = np.hstack((df, dg, di, do)) # 結合
+
+        dWh = np.dot(h_prev.T, dA) # 左端の逆伝播
+        dWx = np.dot(x.T, dA)
+        db = dA.sum(axis=0)
+
+        self.grads[0][...] = dWx
         self.grads[1][...] = dWh
         self.grads[2][...] = db
 
-        return dx, dh_prev
+        dx = np.dot(dA, Wx.T)
+        dh_prev = np.dot(dA, Wh.T)
 
-class TimeRNN:
+        return dx, dh_prev, dc_prev # 3つ！，簡単です
+
+class TimeLSTM:
     '''
-    上のやつ全部まとめたやつTime分
+    Time分出力できるやつ
     '''
     def __init__(self, Wx, Wh, b, stateful=False):
-        self.params = [Wx, Wh, b] # くくっているのは同じ理由 hWh + xWx + b = h
+        self.params = [Wx, Wh, b]
         self.grads = [np.zeros_like(Wx), np.zeros_like(Wh), np.zeros_like(b)]
         self.layers = None
 
-        self.h, self.dh = None, None
+        self.h, self.c = None, None
+        self.dh = None
         self.stateful = stateful
 
-    def set_state(self, h):
-        self.h = h
-
-    def reset_state(self):
-        self.h = None
-
     def forward(self, xs):
-        Wx, Wh, b = self.params # パラメータの初期化
-        N, T, D = xs.shape # xsの形, Dは入力ベクトルの大きさ，このレイヤーはまとめてデータをもらうので！
+        Wx, Wh, b = self.params
+        N, T, D = xs.shape
+        H = Wh.shape[0]
 
-        # print(N, T, D)
-        # sys.exit()
+        self.layers = []
+        hs = np.empty((N, T, H), dtype='f')
 
-        D, H = Wx.shape 
+        if not self.stateful or self.h is None: # statefulがFalseなら0にする
+            self.h = np.zeros((N, H), dtype='f')
+        if not self.stateful or self.c is None: # statefulがFalseなら0にする
+            self.c = np.zeros((N, H), dtype='f')
 
-        self.layers = [] # 各レイヤー（RNNの中の）
-        hs = np.empty((N, T, H), dtype='f') # Nはバッチ数，Tは時間数，HがHの次元
+        for t in range(T): # 時間サイズをTへ
+            layer = LSTM(*self.params) # 同じ重みを共有する
+            self.h, self.c = layer.forward(xs[:, t, :], self.h, self.c)
+            hs[:, t, :] = self.h
 
-        if not self.stateful or self.h is None: # statefulでなかったら,または，初期呼び出し時にhがなかったら（前の状態を保持しなかったら）
-            self.h = np.zeros((N, H), dtype='f') # Nはバッチ数
-
-        for t in range(T): # 時間分（backpropする分）だけ繰り返し
-            layer = RNN(*self.params) # 可変長引数らしい　ばらばらで渡される今回のケースでいえば，Wx, Wh, bとしても同義
-            self.h = layer.forward(xs[:, t, :], self.h) # その時刻のxを渡す
-            hs[:, t, :] = self.h # 保存しておく
-            self.layers.append(layer) # RNNの各状態の保存
+            self.layers.append(layer)
 
         return hs
 
-    def backward(self, dhs): 
-        Wx, Wh, b = self.params # パラメータの初期化
-        N, T, H = dhs.shape # xsの形, Dは入力ベクトルの大きさ，このレイヤーはまとめてデータをもらうので！
-        D, H = Wx.shape 
+    def backward(self, dhs):
+        Wx, Wh, b = self.params
+        N, T, H = dhs.shape
+        D = Wx.shape[0]
 
         dxs = np.empty((N, T, D), dtype='f')
-        dh = 0
+        dh, dc = 0, 0
+
         grads = [0, 0, 0]
-
         for t in reversed(range(T)):
-            layer = self.layers[t] # 一つずつ保存しておいたlayerを呼び出す
-            dx, dh = layer.backward(dhs[:, t, :] + dh) # 勾配は合算します（分岐ノードなので）
-            dxs[:, t ,:] = dx
+            layer = self.layers[t]
+            dx, dh, dc = layer.backward(dhs[:, t, :] + dh, dc)
+            dxs[:, t, :] = dx
+            for i, grad in enumerate(layer.grads):
+                grads[i] += grad
 
-            for i, grad in enumerate(layer.grads): # 各重み(3つ，Wx, Wb, b)を取り出す，同じ重みを使っているので，勾配はすべて足し算
-                grads[i] += grad 
-        
-        # print(len(grads))
-
-        for i, grad in enumerate(grads): # 時系列順に並んでいるやつをコピー
-            self.grads[i][...] = grad # 
-        
+        for i, grad in enumerate(grads):
+            self.grads[i][...] = grad
         self.dh = dh
+        return dxs
 
-        return dxs # 後ろに逆伝播させる用(N, T, D)になっている
+    def set_state(self, h, c=None): # stateを消去
+        self.h, self.c = h, c
+
+    def reset_state(self): # 記憶セルもすべて消去
+        self.h, self.c = None, None
 
 class MatMul:
     def __init__(self, W):
@@ -254,7 +282,7 @@ class TimeSoftmaxWithLoss:
         loss = -1 * np.sum(ls)
         loss /= mask.sum() # mask部分だけ考える
 
-        print('mask = {0}'.format(mask.sum()))
+        # print('mask = {0}'.format(mask.sum()))
 
         self.cache = (ts, ys, mask, (N, T, V))
         return loss
@@ -272,25 +300,28 @@ class TimeSoftmaxWithLoss:
 
         return dx
 
+class TimeDropout:
+    '''
+    ドロップアウト（Time用（つまり，すべての隠れ状態に対して行っている））
+    '''
+    def __init__(self, dropout_ratio=0.5):
+        self.params, self.grads = [], []
+        self.dropout_ratio = dropout_ratio
+        self.mask = None
+        self.train_flg = True
 
-'''
-In [3]: x
-Out[3]:
-array([[ 0,  1,  2,  3,  4],
-       [ 5,  6,  7,  8,  9],
-       [10, 11, 12, 13, 14]])
+    def forward(self, xs):
+        if self.train_flg:
+            flg = np.random.rand(*xs.shape) > self.dropout_ratio # このrationより大きい値だけをTrueにする，値はランダムにとっている
+            scale = 1 / (1.0 - self.dropout_ratio)
+            self.mask = flg.astype(np.np.float32) * scale # マスクする
 
-In [4]: x[np.newaxis, :, :] # １つ次元を追加してスライシング。
-Out[4]:
-array([[[ 0,  1,  2,  3,  4],
-        [ 5,  6,  7,  8,  9],
-        [10, 11, 12, 13, 14]]])
+            return xs * self.mask # 大きいやつ以外が消える
+        else:
+            return xs
 
-In [5]: x[:, np.newaxis, :] # axis=1のところに入れることも可能。  
-Out[5]:
-array([[[ 0,  1,  2,  3,  4]],
+    def backward(self, dout):
+        return dout * self.mask # Relu関数的になっている，maskでTrueにしておけばよい，Trueのものだけ逆に伝わる
 
-       [[ 5,  6,  7,  8,  9]],
 
-       [[10, 11, 12, 13, 14]]])
-'''
+

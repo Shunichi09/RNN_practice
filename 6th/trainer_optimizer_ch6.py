@@ -1,73 +1,9 @@
 # Chap3で使うNN関連のプログラム(ネットワーク)
 import numpy as np
 import matplotlib.pyplot as plt
-from functions_ch5 import UnigramSampler, cross_entropy_error
-from layers_ch5 import TimeEmbedding, TimeAffine, TimeSoftmaxWithLoss, TimeRNN
+from functions_ch6 import UnigramSampler, cross_entropy_error
 import time
 import sys
-
-class Trainer:
-    '''
-    いろいろまとめっちゃった学習クラス
-    '''
-    def __init__(self, model, optimizer): 
-        self.model = model # 上記のクラスが入るイメージ
-        self.optimizer = optimizer # 今回はadam
-        self.loss_list = []
-        self.eval_interval = None
-        self.current_epoch = 0
-
-    def fit(self, x, t, max_epoch, batch_size, max_grad=None, eval_interval=20): # デフォルト設定いるのか疑問,消した
-        data_size = len(x) # 行×列の行がでるイメージ
-        max_iters = data_size // batch_size # 切り捨て除算らしい
-        self.eval_interval = eval_interval
-        model, optimizer = self.model, self.optimizer 
-        total_loss = 0
-        loss_count = 0
-
-        start_time = time.time()
-        for epoch in range(max_epoch):
-            # シャッフル
-            idx = np.random.permutation(np.arange(data_size))
-            x = x[idx]
-            t = t[idx]
-            # 単純に混ぜただけ
-
-            for iters in range(max_iters):
-                # 順番に取り出していく
-                batch_x = x[iters*batch_size:(iters+1)*batch_size]
-                batch_t = t[iters*batch_size:(iters+1)*batch_size]
-
-                # 勾配を求め、パラメータを更新
-                loss = model.forward(batch_x, batch_t)
-                # print(loss)
-                model.backward()
-                params, grads = remove_duplicate(model.params, model.grads)  # 共有された重みを1つに集約，下参照
-                if max_grad is not None:# RNNで使用
-                    clip_grads(grads, max_grad)
-                optimizer.update(params, grads) # 片方だけ更新すれば全部更新されます(共有された重みはアドレスを共有しているので)
-                total_loss += loss
-                loss_count += 1
-
-                # 評価
-                if (eval_interval is not None) and (iters % eval_interval) == 0:
-                    avg_loss = total_loss / loss_count # そのエポックでのロスの平均
-                    elapsed_time = time.time() - start_time # 計算時間の計算
-                    print('epoch {0}, iter {1} / {2} , time {3}[s] , loss {4}'
-                          .format(self.current_epoch + 1, iters + 1, max_iters, round(elapsed_time, 3), round(avg_loss, 3) ))
-                    self.loss_list.append(float(avg_loss)) # epoch毎のロス
-                    total_loss, loss_count = 0, 0
-
-            self.current_epoch += 1
-
-    def plot(self, ylim=None):
-        x = np.arange(len(self.loss_list))
-        if ylim is not None:
-            plt.ylim(*ylim)
-        plt.plot(x, self.loss_list, label='train')
-        plt.xlabel('iterations (x' + str(self.eval_interval) + ')')
-        plt.ylabel('loss')
-        plt.show()
 
 class RnnlmTrainer:
     def __init__(self, model, optimizer):
@@ -183,11 +119,11 @@ def clip_grads(grads, max_norm):
     ある勾配より大きくなったらもう使わないってやつ
     '''
     total_norm = 0
-    for grad in grads:
+    for grad in grads: # すべての重みを足し算する
         total_norm += np.sum(grad ** 2)
     total_norm = np.sqrt(total_norm)
 
-    rate = max_norm / (total_norm + 1e-6)
+    rate = max_norm / (total_norm + 1e-6) # 大きくなったらクリップする，1ですねここでは
     if rate < 1:
         for grad in grads:
             grad *= rate
